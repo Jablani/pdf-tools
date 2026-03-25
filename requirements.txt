@@ -1,0 +1,6 @@
+streamlit
+streamlit-authenticator
+pyyaml
+pymupdf
+pandas
+openpyxl

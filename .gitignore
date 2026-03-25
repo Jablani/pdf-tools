@@ -1,0 +1,7 @@
+# Python 缓存文件
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 数据库文件（如果不需要版本控制）
+*.db
