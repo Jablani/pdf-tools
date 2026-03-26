@@ -100,7 +100,7 @@ def get_user_by_token(token):
 
 
 # --- 页面配置 ---
-st.set_page_config(page_title="Kirk's 自动化平台 V1.1", layout="wide", page_icon="🔧")
+st.set_page_config(page_title="自动化平台 V1.1", layout="wide", page_icon="🔧")
 init_db()
 
 # Session 状态管理
