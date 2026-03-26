@@ -61,7 +61,7 @@ def create_separator_page(doc, ob_name, label_type, index_str, w, h):
     page.insert_text((x_idx, y_idx), index_info, fontsize=index_size, fontname=standard_bold_font, color=(0, 0, 0))
 
 def show_ui(user_info, update_usage_callback):
-    st.title("🏷️ VC 板标+箱标处理")
+    st.title("🏷️ VC 自动化工作流V3.1")
     st.markdown("""
     **功能说明：**
     1. 遍历 `OB` 文件夹，获取 `palletLabels_*.pdf` 和 `cartonLabels*.pdf`。

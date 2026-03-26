@@ -147,9 +147,9 @@ else:
     if st.sidebar.button("📦 UPS 处理工具", use_container_width=True):
         st.session_state.menu_choice = "UPS 工具"
 
-    if st.sidebar.button("📦 VC 处理工具", use_container_width=True):
+    if st.sidebar.button("🏷️ VC 处理工具", use_container_width=True):
         st.session_state.menu_choice = "VC 工具"
-    if st.sidebar.button("📂 BOL 插入OB", use_container_width=True):
+    if st.sidebar.button("📂 BOL 处理工具", use_container_width=True):
         st.session_state.menu_choice = "BOL 工具"
 
     if u_info['role'] == 'admin':
@@ -173,13 +173,13 @@ else:
         # 🚀 业务逻辑完全外包给 tools/ups_v2_6.py
         ups_v2_6.show_ui(u_info, update_usage)
     elif cur == "VC 工具":
-        # 🚀 业务逻辑完全外包给 tools/vc_pdf_app.py
-        from tools import vc_pdf_app
-        vc_pdf_app.show_ui(u_info, update_usage)
+        # 🚀 业务逻辑完全外包给 tools/vc_app_v3_1.py
+        from tools import vc_app_v3_1
+        vc_app_v3_1.show_ui(u_info, update_usage)
     elif cur == "BOL 工具":
-        # 🚀 业务逻辑完全外包给 tools/bol_app.py
-        from tools import bol_app
-        bol_app.show_ui(u_info, update_usage)
+        # 🚀 业务逻辑完全外包给 tools/bol_app_v2_0.py
+        from tools import bol_app_v2_0
+        bol_app_v2_0.show_ui(u_info, update_usage)
 
     elif cur == "管理后台":
         st.title("🛠 用户管理控制台")

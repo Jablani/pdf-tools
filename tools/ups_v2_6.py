@@ -161,7 +161,7 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
 
 def show_ui(user_info, update_usage_callback):
     """在该函数中定义 UPS 工具的所有右侧界面逻辑"""
-    st.title("📦 UPS 自动化工作流")
+    st.title("📦 UPS 自动化工作流v2.6 ")
     
     st.markdown("""
     **功能说明：**

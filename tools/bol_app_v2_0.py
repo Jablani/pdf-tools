@@ -78,14 +78,16 @@ def process_bol(ob_name, bol_bytes, bulk_picking_pdf_bytes=None):
     return processed_doc
 
 def show_ui(user_info, update_usage_callback):
-    st.title("📄 BOL PDF 批量处理 (Process BOL 2.0)")
+    st.title("📄 BOL 自动化工作流v2.0")
     st.markdown("""
     **功能说明：**
-    1. 查找 `OB` 文件夹下的 `BOL.PDF`。
-    2. 在右上角标注 `OB` 编号，并复制一页（原页+标注页）。
-    3. （可选）上传 BulkPickingList PDF，自动提取对应 OBC 的 Freight Pick List 页面并插入。
-    4. 合并所有处理后的 BOL 为一个 PDF。
+    1. 遍历 ZIP 中的各 `OB` 文件夹，查找 `BOL.PDF`。
+    2. 在每页右上角标注 `OB` 编号，并复制一页（生成 原页+标注页）。
+    3. （可选）上传 `BulkPickingList.pdf`，自动查找对应 OBC 的 Freight Pick List 页面并插入。
+    4. 合并所有处理后的 BOL 为单一 PDF 下载。
     """)
+    
+    st.info("💡 **提示：** 若需要添加 Freight Pick List，请确保上传的 BulkPickingList PDF 中包含对应 OBC 编号的页面。")
     from datetime import datetime
     today = datetime.now().strftime("%Y-%m-%d")
     if today > user_info['expiry_date']:
