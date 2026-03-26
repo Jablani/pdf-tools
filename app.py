@@ -36,6 +36,16 @@ def init_db():
                   total_limit INTEGER,
                   used_count INTEGER,
                   auth_token TEXT)''')
+    
+    # 创建操作日志表
+    c.execute('''CREATE TABLE IF NOT EXISTS operation_logs
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  username TEXT,
+                  operation_type TEXT,
+                  operation_detail TEXT,
+                  timestamp TEXT,
+                  ip_address TEXT)''')
+    
     conn.commit()
     conn.close()
     ensure_auth_column()
@@ -66,10 +76,18 @@ def get_user_data(username):
     return df.iloc[0] if not df.empty else None
 
 
-def update_usage(username):
-    """扣除用户使用额度（回调函数，传递给 tools 脚本）"""
+def update_usage(username, operation_type="未知操作", operation_detail=""):
+    """扣除用户使用额度（回调函数，传递给 tools 脚本）并记录操作日志"""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("UPDATE users SET used_count = used_count + 1 WHERE username=?", (username,))
+    
+    # 记录操作日志
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    ip_address = "127.0.0.1"  # 在实际部署中可以通过st.request.connection.remote_ip获取
+    
+    conn.execute("INSERT INTO operation_logs (username, operation_type, operation_detail, timestamp, ip_address) VALUES (?, ?, ?, ?, ?)",
+                 (username, operation_type, operation_detail, timestamp, ip_address))
+    
     conn.commit()
     conn.close()
 
@@ -123,7 +141,7 @@ if not st.session_state.auth:
     st.title("🔐 登录中心")
     user = st.text_input("用户名")
     pw = st.text_input("密码", type="password")
-    if st.button("登录", use_container_width=True):
+    if st.button("登录", width='stretch'):
         if check_user(user, pw):
             st.session_state.auth = True
             st.session_state.user = user
@@ -144,22 +162,22 @@ else:
 
     # 纵向平铺菜单区
     st.sidebar.subheader("🚀 功能中心")
-    if st.sidebar.button("📦 UPS 处理工具", use_container_width=True):
+    if st.sidebar.button("📦 UPS 处理工具", width='stretch'):
         st.session_state.menu_choice = "UPS 工具"
 
-    if st.sidebar.button("🏷️ VC 处理工具", use_container_width=True):
+    if st.sidebar.button("🏷️ VC 处理工具", width='stretch'):
         st.session_state.menu_choice = "VC 工具"
-    if st.sidebar.button("📂 BOL 处理工具", use_container_width=True):
+    if st.sidebar.button("📂 BOL 处理工具", width='stretch' ):
         st.session_state.menu_choice = "BOL 工具"
 
     if u_info['role'] == 'admin':
         st.sidebar.markdown("---")
         st.sidebar.subheader("🛠 系统管理")
-        if st.sidebar.button("⚙️ 用户管理后台", use_container_width=True):
+        if st.sidebar.button("⚙️ 用户管理后台", width='stretch'):
             st.session_state.menu_choice = "管理后台"
 
     st.sidebar.markdown("---")
-    if st.sidebar.button("🚪 登出", use_container_width=True):
+    if st.sidebar.button("🚪 登出", width='stretch'):
         clear_user_auth_token(st.session_state.user)
         st.session_state.auth = False
         st.session_state.user = ''
@@ -171,51 +189,129 @@ else:
 
     if cur == "UPS 工具":
         # 🚀 业务逻辑完全外包给 tools/ups_v2_6.py
-        ups_v2_6.show_ui(u_info, update_usage)
+        ups_v2_6.show_ui(u_info, lambda username: update_usage(username, "UPS工具", "处理UPS面单和箱标"))
     elif cur == "VC 工具":
         # 🚀 业务逻辑完全外包给 tools/vc_app_v3_1.py
         from tools import vc_app_v3_1
-        vc_app_v3_1.show_ui(u_info, update_usage)
+        vc_app_v3_1.show_ui(u_info, lambda username: update_usage(username, "VC工具", "处理VC板标和箱标"))
     elif cur == "BOL 工具":
         # 🚀 业务逻辑完全外包给 tools/bol_app_v2_0.py
         from tools import bol_app_v2_0
-        bol_app_v2_0.show_ui(u_info, update_usage)
+        bol_app_v2_0.show_ui(u_info, lambda username: update_usage(username, "BOL工具", "处理BOL PDF和Freight Pick List"))
 
     elif cur == "管理后台":
         st.title("🛠 用户管理控制台")
-        conn = sqlite3.connect(DB_PATH)
-        df_users = pd.read_sql("SELECT username, role, expiry_date, total_limit, used_count FROM users", conn)
-        st.dataframe(df_users, use_container_width=True)
-        with st.expander("➕ 编辑用户"):
-            target_user = st.text_input("目标用户名 (新增或修改)")
-            new_role = st.selectbox('用户组：', ['user', 'admin'])
-            new_pw = st.text_input("密码 (修改时不填则保留原密码)")
-            new_expiry = st.date_input("到期日期", datetime.now() + timedelta(days=365))
-            new_limit = st.number_input("次数上限", value=100)
-            if st.button("保存更改"):
-                c = conn.cursor()
-                if new_pw:
-                    h = hashlib.sha256(new_pw.encode()).hexdigest()
-                    c.execute("INSERT OR REPLACE INTO users (username, password, role, expiry_date, total_limit, used_count) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT used_count FROM users WHERE username=?), 0))", (target_user, h, new_role, str(new_expiry), int(new_limit), target_user))
-                else:
-                    c.execute("UPDATE users SET role=?, expiry_date=?, total_limit=? WHERE username=?", (new_role, str(new_expiry), int(new_limit), target_user))
-                conn.commit(); st.success("已更新"); st.rerun()
         
-        with st.expander("❌ 删除用户"):
-            delete_user = st.text_input("输入要删除的用户名")
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("删除", use_container_width=True):
-                    if delete_user.strip():
-                        c = conn.cursor()
-                        c.execute("DELETE FROM users WHERE username=?", (delete_user,))
-                        conn.commit()
-                        st.success(f"✅ 用户 '{delete_user}' 已删除")
-                        st.rerun()
+        # 创建选项卡
+        tab1, tab2 = st.tabs(["👥 用户管理", "📊 操作记录"])
+        
+        with tab1:
+            conn = sqlite3.connect(DB_PATH)
+            df_users = pd.read_sql("SELECT username, role, expiry_date, total_limit, used_count FROM users", conn)
+            st.dataframe(df_users, width='stretch')
+            
+            with st.expander("➕ 编辑用户"):
+                target_user = st.text_input("目标用户名 (新增或修改)")
+                new_role = st.selectbox('用户组：', ['user', 'admin'])
+                new_pw = st.text_input("密码 (修改时不填则保留原密码)")
+                new_expiry = st.date_input("到期日期", datetime.now() + timedelta(days=365))
+                new_limit = st.number_input("次数上限", value=100)
+                if st.button("保存更改"):
+                    c = conn.cursor()
+                    if new_pw:
+                        h = hashlib.sha256(new_pw.encode()).hexdigest()
+                        c.execute("INSERT OR REPLACE INTO users (username, password, role, expiry_date, total_limit, used_count) VALUES (?, ?, ?, ?, ?, COALESCE((SELECT used_count FROM users WHERE username=?), 0))", (target_user, h, new_role, str(new_expiry), int(new_limit), target_user))
                     else:
-                        st.error("请输入用户名")
-            with col2:
-                st.info("删除后无法恢复", icon="⚠️")
+                        c.execute("UPDATE users SET role=?, expiry_date=?, total_limit=? WHERE username=?", (new_role, str(new_expiry), int(new_limit), target_user))
+                    conn.commit(); st.success("已更新"); st.rerun()
+            
+            with st.expander("❌ 删除用户"):
+                delete_user = st.text_input("输入要删除的用户名")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("删除",width='stretch'):
+                        if delete_user.strip():
+                            c = conn.cursor()
+                            c.execute("DELETE FROM users WHERE username=?", (delete_user,))
+                            conn.commit()
+                            st.success(f"✅ 用户 '{delete_user}' 已删除")
+                            st.rerun()
+                        else:
+                            st.error("请输入用户名")
+                with col2:
+                    st.info("删除后无法恢复", icon="⚠️")
+            
+            conn.close()
         
-        conn.close()
+        with tab2:
+            st.subheader("📊 操作记录查看")
+            
+            # 筛选器
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                filter_user = st.selectbox("筛选用户", ["全部"] + list(pd.read_sql("SELECT DISTINCT username FROM operation_logs", sqlite3.connect(DB_PATH))['username']))
+            with col2:
+                filter_operation = st.selectbox("筛选操作类型", ["全部"] + list(pd.read_sql("SELECT DISTINCT operation_type FROM operation_logs", sqlite3.connect(DB_PATH))['operation_type']))
+            with col3:
+                days_back = st.selectbox("时间范围", ["全部", "今天", "最近7天", "最近30天"], index=2)
+            
+            # 构建查询
+            query = "SELECT username, operation_type, operation_detail, timestamp, ip_address FROM operation_logs WHERE 1=1"
+            params = []
+            
+            if filter_user != "全部":
+                query += " AND username = ?"
+                params.append(filter_user)
+            
+            if filter_operation != "全部":
+                query += " AND operation_type = ?"
+                params.append(filter_operation)
+            
+            if days_back != "全部":
+                if days_back == "今天":
+                    days = 1
+                elif days_back == "最近7天":
+                    days = 7
+                elif days_back == "最近30天":
+                    days = 30
+                
+                from datetime import datetime, timedelta
+                start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+                query += " AND timestamp >= ?"
+                params.append(start_date + " 00:00:00")
+            
+            query += " ORDER BY timestamp DESC"
+            
+            conn = sqlite3.connect(DB_PATH)
+            df_logs = pd.read_sql(query, conn, params=params)
+            conn.close()
+            
+            if not df_logs.empty:
+                # 格式化时间显示
+                df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 重命名列为中文
+                df_logs = df_logs.rename(columns={
+                    'username': '用户名',
+                    'operation_type': '操作类型',
+                    'operation_detail': '操作详情',
+                    'timestamp': '操作时间',
+                    'ip_address': 'IP地址'
+                })
+                
+                st.dataframe(df_logs, width='stretch')
+                
+                # 统计信息
+                st.markdown("---")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("总操作次数", len(df_logs))
+                with col2:
+                    unique_users = df_logs['用户名'].nunique()
+                    st.metric("活跃用户数", unique_users)
+                with col3:
+                    today_ops = len(df_logs[df_logs['操作时间'].str.startswith(datetime.now().strftime('%Y-%m-%d'))])
+                    st.metric("今日操作", today_ops)
+            else:
+                st.info("暂无操作记录")
 
