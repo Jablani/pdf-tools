@@ -67,15 +67,15 @@ def process_bol(ob_name, bol_bytes, bulk_picking_pdf_bytes=None):
         copy_doc.close()
     src_doc.close()
     
-    # 如果提供了BulkPickingList PDF，添加对应的Freight Pick List页面
+    added_bulk = False
     if bulk_picking_pdf_bytes:
         bulk_doc = find_bulk_picking_list_page(bulk_picking_pdf_bytes, ob_name)
         if bulk_doc:
-            # 插入找到的页面
             processed_doc.insert_pdf(bulk_doc)
             bulk_doc.close()
+            added_bulk = True
     
-    return processed_doc
+    return processed_doc, added_bulk
 
 def show_ui(user_info, update_usage_callback):
     st.title("📄 BOL 自动化工作流v2.0")
@@ -122,18 +122,40 @@ def show_ui(user_info, update_usage_callback):
                 st.error("ZIP 中未检测到 OB 文件夹。")
             else:
                 all_docs = []
+                missing_freight = []
+                missing_bol = []
+                total_obs = len(ob_dirs)
+                cur_index = 0
                 for ob_name in sorted(list(ob_dirs)):
+                    cur_index += 1
                     bol_path = next((f for f in all_files if f.upper().endswith(f"{ob_name.upper()}/BOL.PDF")), None)
-                    if bol_path:
-                        with z.open(bol_path) as f:
-                            doc = process_bol(ob_name, f.read(), bulk_picking_bytes)
-                            all_docs.append(doc)
-                        
-                        status_text = f"✅ 处理完成: {ob_name}"
-                        if bulk_picking_bytes:
+                    if not bol_path:
+                        missing_bol.append(ob_name)
+                        st.warning(f"{cur_index}/{total_obs} 缺少BOL.PDF: {ob_name}")
+                        continue
+
+                    with z.open(bol_path) as f:
+                        doc, bulk_added = process_bol(ob_name, f.read(), bulk_picking_bytes)
+                        all_docs.append(doc)
+
+                    status_text = f"{cur_index}/{total_obs} 处理完成: {ob_name}"
+                    if bulk_picking_bytes:
+                        if bulk_added:
                             status_text += " (已添加 Freight Pick List)"
-                        st.write(status_text)
+                        else:
+                            status_text += " (未找到 Freight Pick List)"
+                            missing_freight.append(ob_name)
+                    st.write(status_text)
+
                 update_usage_callback(user_info['username'])
+
+                st.markdown("---")
+                st.success(f"处理结束: 共{total_obs}个OBC，已成功处理{len(all_docs)}个BOL")
+                if missing_bol:
+                    st.warning(f"缺失 BOL.PDF：{', '.join(missing_bol)}")
+                if missing_freight:
+                    st.warning(f"未找到 Freight Pick List：{', '.join(missing_freight)}")
+
                 if all_docs:
                     merged = fitz.open()
                     for d in all_docs:
