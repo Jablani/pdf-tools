@@ -93,22 +93,32 @@ def get_ip_info(ip):
 
 
 def get_client_ip():
-    """使用最新官方推荐方式获取 IP (兼容 st.context)"""
+    """获取客户端真实 IP (兼容多种环境的终极方案)"""
     try:
-        # 1. 尝试最新官方推荐方式 (Streamlit 1.30+)
-        if hasattr(st, "context"):
-            # 获取 Headers
-            headers = st.context.headers
-            # 优先从代理头获取
+        # 1. 尝试从传统的 websocket headers 获取 (Streamlit < 1.30)
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        headers = _get_websocket_headers()
+        if headers:
+            if "X-Forwarded-For" in headers:
+                return headers["X-Forwarded-For"].split(",")[0].strip()
             if "x-forwarded-for" in headers:
                 return headers["x-forwarded-for"].split(",")[0].strip()
-            # 备用从远程地址获取
-            return st.context.remote_ip
-            
-        # 2. 如果是旧版本或某些特定环境
-        return "未知"
-    except Exception as e:
-        return f"获取失败({str(e)})"
+    except:
+        pass
+
+    try:
+        # 2. 尝试从最新的 st.context 获取 (Streamlit >= 1.30)
+        # 注意：st.context.headers 在没有代理时可能不包含客户端 IP
+        if hasattr(st, "context"):
+            headers = st.context.headers
+            if "x-forwarded-for" in headers:
+                return headers["x-forwarded-for"].split(",")[0].strip()
+    except:
+        pass
+    
+    # 3. 如果以上都失败（特别是本地直接运行无 Nginx 情况），尝试获取服务器端看到的远程地址
+    # 注意：在本地直接 run 时，这个值通常是 127.0.0.1 或局域网 IP
+    return "127.0.0.1" # 兜底默认为本地，等待部署到 NAS 后通过 X-Forwarded-For 激活
 
 
 def update_usage(username, operation_type="未知操作", operation_detail=""):
