@@ -79,7 +79,7 @@ def get_user_data(username):
 
 def get_ip_info(ip):
     """查询 IP 归属地"""
-    if not ip or ip in ["127.0.0.1", "localhost", "未知"]:
+    if not ip or ip in ["127.0.0.1", "localhost", "未知", "::1"]:
         return "本地访问"
     try:
         # 使用 ip-api.com 的免费 API (限制 45次/分钟)
@@ -87,19 +87,28 @@ def get_ip_info(ip):
         data = response.json()
         if data.get("status") == "success":
             return f"{data.get('country')} {data.get('regionName')} {data.get('city')}"
-        return "未知区域"
+        return "本地局域网" if ip.startswith(("192.168.", "10.", "172.")) else "未知区域"
     except:
         return "查询失败"
 
 
 def get_client_ip():
-    """获取客户端真实 IP"""
+    """获取客户端真实 IP (兼容 Streamlit 1.30+)"""
     try:
-        # 针对反向代理环境 (如 Nginx, Docker)
-        headers = st.context.headers
-        if "x-forwarded-for" in headers:
-            return headers["x-forwarded-for"].split(",")[0].strip()
-        return st.context.remote_ip
+        # 优先从 HTTP Headers 获取 (穿透代理)
+        from streamlit.web.server.websocket_headers import _get_websocket_headers
+        headers = _get_websocket_headers()
+        if headers:
+            # 兼容不同代理头的写法
+            for header in ["X-Forwarded-For", "x-forwarded-for"]:
+                if header in headers:
+                    return headers[header].split(",")[0].strip()
+        
+        # 兜底方案：尝试从 st.context 获取 (如果 Streamlit 版本支持)
+        if hasattr(st, "context"):
+            return st.context.remote_ip
+            
+        return "未知"
     except:
         return "未知"
 
