@@ -4,6 +4,7 @@ import pandas as pd
 import hashlib
 import uuid
 import os
+import requests
 from datetime import datetime, timedelta
 
 # --- 导入业务插件目录中的 UI 渲染函数 ---
@@ -76,17 +77,48 @@ def get_user_data(username):
     return df.iloc[0] if not df.empty else None
 
 
+def get_ip_info(ip):
+    """查询 IP 归属地"""
+    if not ip or ip in ["127.0.0.1", "localhost", "未知"]:
+        return "本地访问"
+    try:
+        # 使用 ip-api.com 的免费 API (限制 45次/分钟)
+        response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city", timeout=3)
+        data = response.json()
+        if data.get("status") == "success":
+            return f"{data.get('country')} {data.get('regionName')} {data.get('city')}"
+        return "未知区域"
+    except:
+        return "查询失败"
+
+
+def get_client_ip():
+    """获取客户端真实 IP"""
+    try:
+        # 针对反向代理环境 (如 Nginx, Docker)
+        headers = st.context.headers
+        if "x-forwarded-for" in headers:
+            return headers["x-forwarded-for"].split(",")[0].strip()
+        return st.context.remote_ip
+    except:
+        return "未知"
+
+
 def update_usage(username, operation_type="未知操作", operation_detail=""):
-    """扣除用户使用额度（回调函数，传递给 tools 脚本）并记录操作日志"""
+    """扣除用户使用额度并记录操作日志"""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("UPDATE users SET used_count = used_count + 1 WHERE username=?", (username,))
     
+    # 获取 IP 及其归属地
+    raw_ip = get_client_ip()
+    geo_info = get_ip_info(raw_ip)
+    full_ip_info = f"{raw_ip} ({geo_info})"
+    
     # 记录操作日志
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ip_address = "127.0.0.1"  # 在实际部署中可以通过st.request.connection.remote_ip获取
     
     conn.execute("INSERT INTO operation_logs (username, operation_type, operation_detail, timestamp, ip_address) VALUES (?, ?, ?, ?, ?)",
-                 (username, operation_type, operation_detail, timestamp, ip_address))
+                 (username, operation_type, operation_detail, timestamp, full_ip_info))
     
     conn.commit()
     conn.close()
@@ -296,7 +328,7 @@ else:
                     'operation_type': '操作类型',
                     'operation_detail': '操作详情',
                     'timestamp': '操作时间',
-                    'ip_address': 'IP地址'
+                    'ip_address': 'IP及归属地'
                 })
                 
                 st.dataframe(df_logs, width='stretch')
@@ -314,4 +346,3 @@ else:
                     st.metric("今日操作", today_ops)
             else:
                 st.info("暂无操作记录")
-
