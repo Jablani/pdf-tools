@@ -10,9 +10,17 @@ from datetime import datetime, timedelta
 # --- 导入业务插件目录中的 UI 渲染函数 ---
 from tools import ups_v2_6
 
-# 数据库存储路径
-DB_PATH = "users.db"
+# 数据库存储路径逻辑升级：
+# 优先从环境变量 DB_PATH 获取（适用于 Docker 挂载），若无则默认 users.db
+DB_PATH = os.getenv("DB_PATH", "users.db")
 
+# 自动确保数据库父目录存在（如果是挂载路径）
+db_dir = os.path.dirname(DB_PATH)
+if db_dir and not os.path.exists(db_dir):
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+    except:
+        pass
 
 def ensure_auth_column():
     conn = sqlite3.connect(DB_PATH)
@@ -95,30 +103,16 @@ def get_ip_info(ip):
 def get_client_ip():
     """获取客户端真实 IP (兼容多种环境的终极方案)"""
     try:
-        # 1. 尝试从传统的 websocket headers 获取 (Streamlit < 1.30)
-        from streamlit.web.server.websocket_headers import _get_websocket_headers
-        headers = _get_websocket_headers()
-        if headers:
-            if "X-Forwarded-For" in headers:
-                return headers["X-Forwarded-For"].split(",")[0].strip()
-            if "x-forwarded-for" in headers:
-                return headers["x-forwarded-for"].split(",")[0].strip()
-    except:
-        pass
-
-    try:
-        # 2. 尝试从最新的 st.context 获取 (Streamlit >= 1.30)
-        # 注意：st.context.headers 在没有代理时可能不包含客户端 IP
+        # 1. 尝试从 HTTP Headers 获取 (Streamlit 1.30+)
         if hasattr(st, "context"):
             headers = st.context.headers
             if "x-forwarded-for" in headers:
                 return headers["x-forwarded-for"].split(",")[0].strip()
+            return st.context.remote_ip
     except:
         pass
     
-    # 3. 如果以上都失败（特别是本地直接运行无 Nginx 情况），尝试获取服务器端看到的远程地址
-    # 注意：在本地直接 run 时，这个值通常是 127.0.0.1 或局域网 IP
-    return "127.0.0.1" # 兜底默认为本地，等待部署到 NAS 后通过 X-Forwarded-For 激活
+    return "127.0.0.1"
 
 
 def update_usage(username, operation_type="未知操作", operation_detail=""):
