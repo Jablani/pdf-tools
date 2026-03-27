@@ -5,6 +5,10 @@ services:
     container_name: doc-auto
     volumes:
       - .:/app
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    environment:
+      - TZ=Asia/Shanghai
     working_dir: /app
     ports:
       - "8501:8501"
