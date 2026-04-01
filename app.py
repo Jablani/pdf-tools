@@ -5,6 +5,7 @@ import hashlib
 import uuid
 import os
 import requests
+import time
 from datetime import datetime, timedelta
 
 # --- 导入业务插件目录中的 UI 渲染函数 ---
@@ -214,6 +215,8 @@ else:
         st.session_state.menu_choice = "VC 工具"
     if st.sidebar.button("📂 BOL 处理工具", width='stretch' ):
         st.session_state.menu_choice = "BOL 工具"
+    if st.sidebar.button("🔑 修改密码", width='stretch'):
+        st.session_state.menu_choice = "修改密码"
 
     if u_info['role'] == 'admin':
         st.sidebar.markdown("---")
@@ -242,6 +245,49 @@ else:
     elif cur == "BOL 工具":
         from tools import bol_app_v2_0
         bol_app_v2_0.show_ui(u_info, lambda username: update_usage(username, "BOL工具", "处理BOL PDF和Freight Pick List"))
+    # ====================== 修改密码 ======================
+    elif cur == "修改密码":
+        st.subheader("修改密码")
+
+        old_pwd = st.text_input("原密码", type="password")
+        new_pwd = st.text_input("新密码", type="password")
+        confirm_pwd = st.text_input("确认新密码", type="password")
+
+        if st.button("确认修改密码"):
+            if not old_pwd or not new_pwd or not confirm_pwd:
+                st.warning("请填写完整信息")
+            elif new_pwd != confirm_pwd:
+                st.error("两次输入的新密码不一致")
+            else:
+                def sha256(s):
+                    return hashlib.sha256(s.encode()).hexdigest()
+
+                user_data = get_user_data(st.session_state.user)
+                if user_data is None:
+                    st.error("无法获取当前用户信息")
+                else:
+                    real_pwd_hash = user_data.get("password", "")
+                    if sha256(old_pwd) != real_pwd_hash:
+                        st.error("原密码错误")
+                    else:
+                        new_pwd_hash = sha256(new_pwd)
+                        conn = sqlite3.connect(DB_PATH)
+                        c = conn.cursor()
+                        c.execute('UPDATE users SET password = ? WHERE username = ?',
+                                  (new_pwd_hash, st.session_state.user))
+                        conn.commit()
+                        conn.close()
+                        st.success("密码修改成功！")
+                        countdown_placeholder = st.empty()
+                        for remaining in range(3, 0, -1):
+                            countdown_placeholder.info(f"{remaining} 秒后自动登出...")
+                            time.sleep(1)
+                        clear_user_auth_token(st.session_state.user)
+                        st.session_state.auth = False
+                        st.session_state.user = ''
+                        st.query_params.clear()
+                        st.rerun()
+
 
     elif cur == "管理后台":
         st.title("🛠 用户管理控制台")
