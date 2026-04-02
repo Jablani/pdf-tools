@@ -9,9 +9,17 @@ from datetime import datetime, timedelta
 # --- 导入业务插件目录中的 UI 渲染函数 ---
 from tools import ups_v2_6
 
-# 数据库存储路径
-DB_PATH = "users.db"
+# 数据库存储路径逻辑升级：
+# 优先从环境变量 DB_PATH 获取（适用于 Docker 挂载），若无则默认 users.db
+DB_PATH = os.getenv("DB_PATH", "users.db")
 
+# 自动确保数据库父目录存在（如果是挂载路径）
+db_dir = os.path.dirname(DB_PATH)
+if db_dir and not os.path.exists(db_dir):
+    try:
+        os.makedirs(db_dir, exist_ok=True)
+    except:
+        pass
 
 def ensure_auth_column():
     conn = sqlite3.connect(DB_PATH)
@@ -57,6 +65,7 @@ def init_db():
               ('admin', admin_pw, 'admin', '2099-12-31', 999999, 0))
     conn.commit()
     conn.close()
+
 
 
 def check_user(username, password):
