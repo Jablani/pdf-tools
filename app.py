@@ -215,6 +215,8 @@ else:
         st.session_state.menu_choice = "VC 工具"
     if st.sidebar.button("📂 BOL 处理工具", width='stretch' ):
         st.session_state.menu_choice = "BOL 工具"
+    if st.sidebar.button("🚧 分板工具",width='stretch'):
+        st.session_state.menu_choice = "分板工具"
     if st.sidebar.button("🔑 修改密码", width='stretch'):
         st.session_state.menu_choice = "修改密码"
 
@@ -245,6 +247,9 @@ else:
     elif cur == "BOL 工具":
         from tools import bol_app_v2_0
         bol_app_v2_0.show_ui(u_info, lambda username: update_usage(username, "BOL工具", "处理BOL PDF和Freight Pick List"))
+    elif cur == "分板工具":
+        from tools import fenban_v1_0
+        fenban_v1_0.show_ui(u_info, lambda username: update_usage(username, "分板工具", "处理分板Excel文件"))   
     # ====================== 修改密码 ======================
     elif cur == "修改密码":
         st.subheader("修改密码")
