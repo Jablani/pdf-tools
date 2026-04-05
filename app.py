@@ -4,6 +4,8 @@ import pandas as pd
 import hashlib
 import uuid
 import os
+import requests
+import time
 from datetime import datetime, timedelta
 
 # --- 导入业务插件目录中的 UI 渲染函数 ---
@@ -67,7 +69,6 @@ def init_db():
     conn.close()
 
 
-
 def check_user(username, password):
     """验证登录"""
     pw_hash = hashlib.sha256(password.encode()).hexdigest()
@@ -84,34 +85,54 @@ def get_user_data(username):
     conn.close()
     return df.iloc[0] if not df.empty else None
 
-# 获取真实客户端 IP
-def get_client_ip():
+
+def get_ip_info(ip):
+    """查询 IP 归属地"""
+    if not ip or ip in ["127.0.0.1", "localhost", "未知", "::1"]:
+        return "本地访问"
     try:
-        # 优先从代理头获取（部署在服务器、Nginx、Docker 几乎都要这个）
-        if 'X-Forwarded-For' in st.request.headers:
-            return st.request.headers['X-Forwarded-For'].split(',')[0].strip()
-        # 备用
-        return st.request.connection.remote_ip
+        # 使用 ip-api.com 的免费 API
+        response = requests.get(f"http://ip-api.com/json/{ip}?fields=status,message,country,regionName,city", timeout=3)
+        data = response.json()
+        if data.get("status") == "success":
+            return f"{data.get('country')} {data.get('regionName')} {data.get('city')}"
+        return "本地局域网" if ip.startswith(("192.168.", "10.", "172.")) else "未知区域"
     except:
-        return "未知IP"
+        return "查询失败"
+
+
+def get_client_ip():
+    """获取客户端真实 IP (兼容多种环境的终极方案)"""
+    try:
+        # 1. 尝试从 HTTP Headers 获取 (Streamlit 1.30+)
+        if hasattr(st, "context"):
+            headers = st.context.headers
+            if "x-forwarded-for" in headers:
+                return headers["x-forwarded-for"].split(",")[0].strip()
+            return st.context.remote_ip
+    except:
+        pass
     
+    return "127.0.0.1"
+
 
 def update_usage(username, operation_type="未知操作", operation_detail=""):
-    """扣除用户使用额度（回调函数，传递给 tools 脚本）并记录操作日志"""
+    """扣除用户使用额度并记录操作日志"""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("UPDATE users SET used_count = used_count + 1 WHERE username=?", (username,))
     
-    # 记录操作日志 - 强制使用东八区时间
-    # 如果容器环境有时区问题，这里通过 timedelta 手动补偿（如果是 UTC 则 +8）
-    # 但更优雅的方式是使用环境变量，这里先做代码层补丁：
+    # 获取 IP 及其归属地
+    raw_ip = get_client_ip()
+    geo_info = get_ip_info(raw_ip)
+    full_ip_info = f"{raw_ip} ({geo_info})"
+    
+    # 记录操作日志
     from datetime import timezone
     tz_sh = timezone(timedelta(hours=8))
     timestamp = datetime.now(tz_sh).strftime("%Y-%m-%d %H:%M:%S")
     
-    ip_address = get_client_ip()
-    
     conn.execute("INSERT INTO operation_logs (username, operation_type, operation_detail, timestamp, ip_address) VALUES (?, ?, ?, ?, ?)",
-                 (username, operation_type, operation_detail, timestamp, ip_address))
+                 (username, operation_type, operation_detail, timestamp, full_ip_info))
     
     conn.commit()
     conn.close()
@@ -152,7 +173,7 @@ if 'menu_choice' not in st.session_state:
 if 'auth' not in st.session_state:
     st.session_state.auth = False
 
-# 0. 从 URL token 尝试恢复登录（刷新后保持状态）
+# 0. 从 URL token 尝试恢复登录
 if not st.session_state.auth:
     token = st.query_params.get("token")
     if token:
@@ -189,23 +210,25 @@ else:
     st.sidebar.subheader("🚀 功能中心")
     if st.sidebar.button("📦 UPS 处理工具", width='stretch'):
         st.session_state.menu_choice = "UPS 工具"
+
     if st.sidebar.button("🏷️ VC 处理工具", width='stretch'):
         st.session_state.menu_choice = "VC 工具"
     if st.sidebar.button("📂 BOL 处理工具", width='stretch' ):
         st.session_state.menu_choice = "BOL 工具"
     if st.sidebar.button("🚧 分板工具",width='stretch'):
         st.session_state.menu_choice = "分板工具"
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("🛠 系统管理")
     if st.sidebar.button("🔑 修改密码", width='stretch'):
         st.session_state.menu_choice = "修改密码"
 
     if u_info['role'] == 'admin':
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🛠 系统管理")
         if st.sidebar.button("测试-1次", width='stretch'):
             update_usage(st.session_state.user, "测试工具", "测试操作")
         if st.sidebar.button("⚙️ 用户管理后台", width='stretch'):
             st.session_state.menu_choice = "管理后台"
 
+    st.sidebar.markdown("---")
     if st.sidebar.button("🚪 登出", width='stretch'):
         clear_user_auth_token(st.session_state.user)
         st.session_state.auth = False
@@ -217,14 +240,11 @@ else:
     cur = st.session_state.menu_choice
 
     if cur == "UPS 工具":
-        # 🚀 业务逻辑完全外包给 tools/ups_v2_6.py
         ups_v2_6.show_ui(u_info, lambda username: update_usage(username, "UPS工具", "处理UPS面单和箱标"))
     elif cur == "VC 工具":
-        # 🚀 业务逻辑完全外包给 tools/vc_app_v3_1.py
         from tools import vc_app_v3_1
         vc_app_v3_1.show_ui(u_info, lambda username: update_usage(username, "VC工具", "处理VC板标和箱标"))
     elif cur == "BOL 工具":
-        # 🚀 业务逻辑完全外包给 tools/bol_app_v2_0.py
         from tools import bol_app_v2_0
         bol_app_v2_0.show_ui(u_info, lambda username: update_usage(username, "BOL工具", "处理BOL PDF和Freight Pick List"))
     elif cur == "分板工具":
@@ -276,8 +296,6 @@ else:
 
     elif cur == "管理后台":
         st.title("🛠 用户管理控制台")
-        
-        # 创建选项卡
         tab1, tab2 = st.tabs(["👥 用户管理", "📊 操作记录"])
         
         with tab1:
@@ -315,78 +333,23 @@ else:
                             st.error("请输入用户名")
                 with col2:
                     st.info("删除后无法恢复", icon="⚠️")
-            
             conn.close()
         
         with tab2:
             st.subheader("📊 操作记录查看")
-            
-            # 筛选器
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                filter_user = st.selectbox("筛选用户", ["全部"] + list(pd.read_sql("SELECT DISTINCT username FROM operation_logs", sqlite3.connect(DB_PATH))['username']))
-            with col2:
-                filter_operation = st.selectbox("筛选操作类型", ["全部"] + list(pd.read_sql("SELECT DISTINCT operation_type FROM operation_logs", sqlite3.connect(DB_PATH))['operation_type']))
-            with col3:
-                days_back = st.selectbox("时间范围", ["全部", "今天", "最近7天", "最近30天"], index=2)
-            
-            # 构建查询
+            filter_user = st.selectbox("筛选用户", ["全部"] + list(pd.read_sql("SELECT DISTINCT username FROM operation_logs", sqlite3.connect(DB_PATH))['username']))
             query = "SELECT username, operation_type, operation_detail, timestamp, ip_address FROM operation_logs WHERE 1=1"
             params = []
-            
             if filter_user != "全部":
                 query += " AND username = ?"
                 params.append(filter_user)
-            
-            if filter_operation != "全部":
-                query += " AND operation_type = ?"
-                params.append(filter_operation)
-            
-            if days_back != "全部":
-                if days_back == "今天":
-                    days = 1
-                elif days_back == "最近7天":
-                    days = 7
-                elif days_back == "最近30天":
-                    days = 30
-                
-                from datetime import datetime, timedelta
-                start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
-                query += " AND timestamp >= ?"
-                params.append(start_date + " 00:00:00")
-            
             query += " ORDER BY timestamp DESC"
-            
             conn = sqlite3.connect(DB_PATH)
             df_logs = pd.read_sql(query, conn, params=params)
             conn.close()
-            
             if not df_logs.empty:
-                # 格式化时间显示
                 df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
-                
-                # 重命名列为中文
-                df_logs = df_logs.rename(columns={
-                    'username': '用户名',
-                    'operation_type': '操作类型',
-                    'operation_detail': '操作详情',
-                    'timestamp': '操作时间',
-                    'ip_address': 'IP地址'
-                })
-                
+                df_logs = df_logs.rename(columns={'username': '用户名', 'operation_type': '操作类型', 'operation_detail': '操作详情', 'timestamp': '操作时间', 'ip_address': 'IP及归属地'})
                 st.dataframe(df_logs, width='stretch')
-                
-                # 统计信息
-                st.markdown("---")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("总操作次数", len(df_logs))
-                with col2:
-                    unique_users = df_logs['用户名'].nunique()
-                    st.metric("活跃用户数", unique_users)
-                with col3:
-                    today_ops = len(df_logs[df_logs['操作时间'].str.startswith(datetime.now().strftime('%Y-%m-%d'))])
-                    st.metric("今日操作", today_ops)
             else:
                 st.info("暂无操作记录")
-
