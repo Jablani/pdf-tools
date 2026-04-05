@@ -217,12 +217,12 @@ else:
         st.session_state.menu_choice = "BOL 工具"
     if st.sidebar.button("🚧 分板工具",width='stretch'):
         st.session_state.menu_choice = "分板工具"
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🛠 系统管理")
     if st.sidebar.button("🔑 修改密码", width='stretch'):
         st.session_state.menu_choice = "修改密码"
 
     if u_info['role'] == 'admin':
-        st.sidebar.markdown("---")
-        st.sidebar.subheader("🛠 系统管理")
         if st.sidebar.button("测试-1次", width='stretch'):
             update_usage(st.session_state.user, "测试工具", "测试操作")
         if st.sidebar.button("⚙️ 用户管理后台", width='stretch'):
