@@ -72,6 +72,8 @@ def process_logic(main_zip_file, freight_file, upc_sku_file):
         
         # 遍历所有 OBC 文件夹
         obc_folders = [f for f in tmp_path.iterdir() if f.is_dir() and f.name.startswith("OBC")]
+        obc_count = len(obc_folders)
+        unprocessed_folders = []
         
         for obc_folder in obc_folders:
             obc_name = obc_folder.name
@@ -88,7 +90,9 @@ def process_logic(main_zip_file, freight_file, upc_sku_file):
             
             # B. 读取 ASN 表关联
             asn_files = list(obc_folder.glob("ASN*.xlsx"))
-            if not asn_files: continue
+            if not asn_files: 
+                unprocessed_folders.append(obc_name)
+                continue
             
             asn_df = pd.read_excel(asn_files[0])
             # A列板码, B列箱码
@@ -140,8 +144,22 @@ def process_logic(main_zip_file, freight_file, upc_sku_file):
                 buf = io.BytesIO()
                 res_df.to_excel(buf, index=False)
                 output_excels.append((f"{obc_name}.xlsx", buf.getvalue()))
+            else:
+                unprocessed_folders.append(obc_name)
 
-    return output_excels, total_logs
+    processed_count = len(output_excels)
+    unprocessed_count = obc_count - processed_count
+    
+    if output_excels:
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for name, data in output_excels:
+                zip_file.writestr(name, data)
+        zip_data = zip_buffer.getvalue()
+    else:
+        zip_data = None
+
+    return zip_data, total_logs, obc_count, processed_count, unprocessed_count, unprocessed_folders
 
 def show_ui(u_info, callback):
     st.title("📂 分板处理工具 v1.0(测试中...)")
@@ -159,7 +177,7 @@ def show_ui(u_info, callback):
         if zip_file and freight_file and upc_sku_file:
             with st.spinner("正在解析并生成分板数据..."):
                 try:
-                    results, logs = process_logic(zip_file, freight_file, upc_sku_file)
+                    results, logs, obc_count, processed_count, unprocessed_count, unprocessed_folders = process_logic(zip_file, freight_file, upc_sku_file)
                     
                     if logs:
                         with st.expander("🔍 详细处理日志"):
@@ -170,9 +188,11 @@ def show_ui(u_info, callback):
                                     st.text(l)
 
                     if results:
-                        st.success(f"成功处理 {len(results)} 个 OBC 文件夹！")
-                        for name, data in results:
-                            st.download_button(f"📥 下载 {name}", data, file_name=name, mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                        if unprocessed_count > 0:
+                            st.success(f"共{obc_count}个OBC文件夹，成功处理{processed_count}个，未处理{unprocessed_count}个：{', '.join(unprocessed_folders)}")
+                        else:
+                            st.success(f"共{obc_count}个OBC文件夹，成功处理{processed_count}个，未处理{unprocessed_count}个")
+                        st.download_button("📥 下载分板表格压缩包", results, file_name="fenban_results.zip", mime="application/zip")
                         callback(u_info['username'])
                     else:
                         st.warning("未能在压缩包内找到有效的 OBC 文件夹或匹配数据。")
