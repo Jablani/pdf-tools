@@ -107,9 +107,16 @@ def get_client_ip():
         # 1. 尝试从 HTTP Headers 获取 (Streamlit 1.30+)
         if hasattr(st, "context"):
             headers = st.context.headers
-            if "x-forwarded-for" in headers:
-                return headers["x-forwarded-for"].split(",")[0].strip()
-            return st.context.remote_ip
+            # 检查多个可能的IP headers
+            for header in ["x-forwarded-for", "x-real-ip", "cf-connecting-ip", "x-client-ip", "forwarded"]:
+                if header in headers:
+                    ip = headers[header].split(",")[0].strip()
+                    if ip and ip not in ["127.0.0.1", "::1", "localhost"]:
+                        return ip
+            # 如果没有headers，使用remote_ip，但排除本地地址
+            remote_ip = st.context.remote_ip
+            if remote_ip and remote_ip not in ["127.0.0.1", "::1", "localhost"]:
+                return remote_ip
     except:
         pass
     
