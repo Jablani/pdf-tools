@@ -225,6 +225,8 @@ else:
     if st.sidebar.button("🚧 分板工具",width='stretch'):
         st.session_state.menu_choice = "分板工具"
     st.sidebar.markdown("---")
+    if st.sidebar.button("鱼虫PDF工具", width='stretch'):
+        st.session_state.menu_choice = "鱼虫PDF工具"
     st.sidebar.subheader("🛠 系统管理")
     if st.sidebar.button("🔑 修改密码", width='stretch'):
         st.session_state.menu_choice = "修改密码"
@@ -257,6 +259,9 @@ else:
     elif cur == "分板工具":
         from tools import fenban_v1_0
         fenban_v1_0.show_ui(u_info, lambda username: update_usage(username, "分板工具", "处理分板Excel文件"))   
+    elif cur == "鱼虫PDF工具":
+        from tools import pdf_merge_analyzer_st
+        pdf_merge_analyzer_st.show_ui(u_info, lambda username: update_usage(username, "鱼虫PDF工具", "处理鱼虫PDF文件"))
     # ====================== 修改密码 ======================
     elif cur == "修改密码":
         st.subheader("修改密码")
