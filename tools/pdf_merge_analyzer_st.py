@@ -197,19 +197,28 @@ class PDFMergeAnalyzer:
         # 获取平台字符串（取第一个平台，如果有多个）
         platform_str = ""
         if platforms:
-            platform_str = list(platforms)[0]  # 取第一个平台
-
-        # 新命名规则：{序号}{平台}{sku}X{件数}（共{页数}单）
-        if qty is not None and total_pages is not None:
-            return f"{sequence_num},{platform_str}-{sku_str}X{qty}（共{total_pages}单）"
-        else:
-            # 回退到旧规则（如果没有提供qty和total_pages）
-            if 'EBUY' in platforms or 'TEMU' in platforms:
-                return f"{sequence_num}，TEMU-{sku_str}"
-            elif 'TIKTOK' in platforms:
-                return f"{sequence_num}，TK-{sku_str}"
+            first_platform = list(platforms)[0]  # 取第一个平台
+            # 将EBAY/xxx
+            if first_platform in ['EBAY', 'xxx']:
+                platform_str = 'TEMU'
+            elif first_platform == 'TIKTOK':
+                platform_str = 'TK'
             else:
-                return f"{sequence_num}，{sku_str}"
+                platform_str = first_platform
+
+        # 命名规则：{序号}，{平台}-{sku} X{件数}（共{页数}单）
+        if qty is not None:
+            # 单 SKU 的情况，输出 X{qty}
+            if platform_str:
+                return f"{platform_str}{sequence_num},-{sku_str} X{qty}pcs（total {total_pages} order）"
+            else:
+                return f"{sequence_num},{sku_str} X{qty}pcs（total {total_pages} order）"
+        else:
+            # 混合 SKU 的情况，sku_str 已包含 X{qty}，不再额外添加
+            if platform_str:
+                return f"{platform_str}{sequence_num},-{sku_str}（total {total_pages} order）"
+            else:
+                return f"{sequence_num},{sku_str}（total {total_pages} order）"
 
     def generate_pdf_merge_plan(self, analysis_result: Dict) -> List[Dict]:
         """
@@ -268,11 +277,12 @@ class PDFMergeAnalyzer:
 
             if clean_skus:
                 rows_list = [row_info['excel_row']]
-                total_qty = sum(clean_qtys)  # 混合SKU的总件数
+                # 构造 SKU1X{qty1}+SKU2X{qty2} 格式
+                sku_with_qty_str = '+'.join([f"{sku}X{qty}pcs" for sku, qty in zip(clean_skus, clean_qtys)])
 
                 pdf_plan.append({
                     'sequence': sequence_num,
-                    'name': self.generate_filename_with_platform(sequence_num, clean_skus, rows_list, total_qty, row_info['pages']),
+                    'name': self.generate_filename_with_platform(sequence_num, sku_with_qty_str, rows_list, None, row_info['pages']),
                     'type': 'mixed_sku',
                     'skus': clean_skus,
                     'qtys': clean_qtys,
