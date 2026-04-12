@@ -150,6 +150,67 @@ class PDFMergeAnalyzer:
             'end_row': end_row + 1
         }
 
+    def get_platform_from_row(self, row_num: int) -> str:
+        """
+        从指定行获取平台信息（A列）
+
+        Args:
+            row_num: 1-based行号
+
+        Returns:
+            平台信息（大写）
+        """
+        try:
+            platform = str(self.df.iloc[row_num - 1, 0]).strip().upper()
+            return platform if platform and platform != 'NAN' else None
+        except:
+            return None
+
+    def generate_filename_with_platform(self, sequence_num: int, sku_info, rows_list, qty=None, total_pages=None) -> str:
+        """
+        根据平台信息生成文件名
+
+        Args:
+            sequence_num: 序号
+            sku_info: SKU信息（字符串或列表）
+            rows_list: 行号列表
+            qty: 件数（可选）
+            total_pages: 总页数（可选）
+
+        Returns:
+            文件名（不含.pdf扩展名）
+        """
+        # 检查所有行的平台信息
+        platforms = set()
+        if rows_list:
+            for row_num in rows_list:
+                platform = self.get_platform_from_row(row_num)
+                if platform:
+                    platforms.add(platform)
+
+        # 构建SKU字符串
+        if isinstance(sku_info, list):
+            sku_str = '+'.join(sku_info)
+        else:
+            sku_str = str(sku_info)
+
+        # 获取平台字符串（取第一个平台，如果有多个）
+        platform_str = ""
+        if platforms:
+            platform_str = list(platforms)[0]  # 取第一个平台
+
+        # 新命名规则：{序号}{平台}{sku}X{件数}（共{页数}单）
+        if qty is not None and total_pages is not None:
+            return f"{sequence_num},{platform_str}-{sku_str}X{qty}（共{total_pages}单）"
+        else:
+            # 回退到旧规则（如果没有提供qty和total_pages）
+            if 'EBUY' in platforms or 'TEMU' in platforms:
+                return f"{sequence_num}，TEMU-{sku_str}"
+            elif 'TIKTOK' in platforms:
+                return f"{sequence_num}，TK-{sku_str}"
+            else:
+                return f"{sequence_num}，{sku_str}"
+
     def generate_pdf_merge_plan(self, analysis_result: Dict) -> List[Dict]:
         """
         根据分析结果生成 PDF 合并方案
@@ -189,7 +250,7 @@ class PDFMergeAnalyzer:
 
                 pdf_plan.append({
                     'sequence': sequence_num,
-                    'name': f"{sequence_num},{sku}",
+                    'name': self.generate_filename_with_platform(sequence_num, sku, rows_list, qty, total_pages),
                     'type': 'single_sku',
                     'sku': sku,
                     'qty': qty,
@@ -206,15 +267,16 @@ class PDFMergeAnalyzer:
             clean_qtys = [p['qty'] for p in row_info['sku_qty_pairs']]
 
             if clean_skus:
-                skus_str = '+'.join(clean_skus)
+                rows_list = [row_info['excel_row']]
+                total_qty = sum(clean_qtys)  # 混合SKU的总件数
 
                 pdf_plan.append({
                     'sequence': sequence_num,
-                    'name': f"{sequence_num},{skus_str}",
+                    'name': self.generate_filename_with_platform(sequence_num, clean_skus, rows_list, total_qty, row_info['pages']),
                     'type': 'mixed_sku',
                     'skus': clean_skus,
                     'qtys': clean_qtys,
-                    'rows': [row_info['excel_row']],
+                    'rows': rows_list,
                     'total_pages': row_info['pages']
                 })
                 sequence_num += 1
