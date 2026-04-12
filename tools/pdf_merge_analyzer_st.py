@@ -1,4 +1,4 @@
-import streamlit as st
+﻿import streamlit as st
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Tuple
@@ -388,12 +388,107 @@ def parse_zip_file(zip_file) -> Dict[str, bytes]:
     return pdf_files
 
 
-def merge_pdfs(pdf_contents: List[bytes]) -> bytes:
+def add_filename_to_last_page(doc: fitz.Document, filename: str):
     """
-    合并多个 PDF 文件
+    在PDF文档的最后一页底部增加15%高度的空白区域，并在空白区域内绘制文件名
+    """
+    if doc.page_count == 0:
+        return
+
+    # 1. 获取最后一页信息
+    old_last_pno = doc.page_count - 1
+    old_last_page = doc[old_last_pno]
+    rect = old_last_page.rect
+
+    # 2. 增加页边距：高度增加15% (从10%增加到15%)
+    additional_height = rect.height * 0.15
+    new_height = rect.height + additional_height
+    new_page = doc.new_page(width=rect.width, height=new_height)
+
+    # 3. 复制原内容
+    temp_doc = fitz.open()
+    temp_doc.insert_pdf(doc, from_page=old_last_pno, to_page=old_last_pno)
+    new_page.show_pdf_page(fitz.Rect(0, 0, rect.width, rect.height), temp_doc, 0)
+    temp_doc.close()
+
+    # 4. 在新页面底部的空白区域绘制文件名
+    # 左右留出 20pt 边距，顶部留出 5pt 缓冲，底部留出 5pt 缓冲
+    margin = 20
+    footer_rect = fitz.Rect(margin, rect.height + 5, rect.width - margin, new_height - 5)
+    
+    font_size = calculate_optimal_font_size(filename, footer_rect)
+    font_size = min(font_size + 2, 40) # 调低最大字号，避免过于拥挤
+    
+    text_lines = wrap_text(filename, footer_rect.width, font_size)
+    if len(text_lines) > 2:
+        text_lines = text_lines[:2] # 最多显示两行
+
+    # 计算垂直居中位置
+    total_text_height = font_size * len(text_lines) * 1.2
+    y_start = footer_rect.y0 + (footer_rect.height - total_text_height) / 2 + font_size
+    
+    for i, line in enumerate(text_lines):
+        new_page.insert_text((footer_rect.x0, y_start + i * font_size * 1.2), line, fontsize=font_size)
+
+    # 5. 删除原页
+    doc.delete_page(old_last_pno)
+
+def calculate_optimal_font_size(text: str, rect: fitz.Rect) -> float:
+    """
+    计算在给定矩形内显示文本的最佳字体大小
+
+    Args:
+        text: 要显示的文本
+        rect: 可用矩形区域
+
+    Returns:
+        最佳字体大小
+    """
+    # 起始字体大小
+    font_size = 50
+    min_font_size = 8
+
+    while font_size > min_font_size:
+        # 测量文本宽度 - 使用全局函数
+        text_width = fitz.get_text_length(text, fontsize=font_size)
+
+        # 如果文本宽度超过可用宽度，减小字体
+        if text_width > rect.width * 0.95:  # 留5%的边距
+            font_size -= 2
+        else:
+            break
+
+    return max(font_size, min_font_size)
+
+
+def wrap_text(text: str, max_width: float, font_size: float) -> List[str]:
+    """
+    将文本按宽度换行，不仅按空格，还支持长字符串截断
+    """
+    lines = []
+    current_line = ""
+    
+    # 逐字符检查，处理没有空格的长文件名
+    for char in text:
+        test_line = current_line + char
+        if fitz.get_text_length(test_line, fontsize=font_size) <= max_width:
+            current_line = test_line
+        else:
+            if current_line:
+                lines.append(current_line)
+            current_line = char
+            
+    if current_line:
+        lines.append(current_line)
+    return lines
+
+def merge_pdfs(pdf_contents: List[bytes], filename: str = None) -> bytes:
+    """
+    合并多个 PDF 文件，并在最后一页底部增加文件名
 
     Args:
         pdf_contents: PDF 文件内容的列表
+        filename: 文件名（不含.pdf扩展名），如果提供则在最后一页底部添加
 
     Returns:
         合并后的 PDF 内容
@@ -404,6 +499,10 @@ def merge_pdfs(pdf_contents: List[bytes]) -> bytes:
         src_doc = fitz.open(stream=pdf_content, filetype="pdf")
         merged_doc.insert_pdf(src_doc)
         src_doc.close()
+
+    # 如果提供了文件名，在最后一页底部添加
+    if filename and merged_doc.page_count > 0:
+        add_filename_to_last_page(merged_doc, filename)
 
     # 创建输出缓冲区
     output_buffer = io.BytesIO()
@@ -678,7 +777,9 @@ def show_ui(user_info, update_usage_callback):
 
                             # 合并 PDF
                             if pdf_contents:
-                                merged_content = merge_pdfs(pdf_contents)
+                                # 去掉.pdf扩展名作为文件名
+                                filename_without_ext = pdf_name.rstrip('.pdf')
+                                merged_content = merge_pdfs(pdf_contents, filename_without_ext)
                                 merged_pdfs[pdf_name] = merged_content
                                 processed_count += 1
                                 st.write(f"✓ 合并完成: {pdf_name} ({len(pdf_contents)} 个文件)")
