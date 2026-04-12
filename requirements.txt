@@ -4,4 +4,3 @@ pyyaml
 pymupdf
 pandas
 openpyxl
-pypdf

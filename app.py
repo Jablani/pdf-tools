@@ -222,11 +222,11 @@ else:
         st.session_state.menu_choice = "VC 工具"
     if st.sidebar.button("📂 BOL 处理工具", width='stretch' ):
         st.session_state.menu_choice = "BOL 工具"
-    if st.sidebar.button("🚧 分板工具",width='stretch'):
-        st.session_state.menu_choice = "分板工具"
-    st.sidebar.markdown("---")
-    if st.sidebar.button("鱼虫PDF工具", width='stretch'):
+    if st.sidebar.button("🚚 分板工具",width='stretch'):
+        st.session_state.menu_choice = "分板工具"    
+    if st.sidebar.button("🐔 鱼虫PDF工具", width='stretch'):
         st.session_state.menu_choice = "鱼虫PDF工具"
+    st.sidebar.markdown("---")
     st.sidebar.subheader("🛠 系统管理")
     if st.sidebar.button("🔑 修改密码", width='stretch'):
         st.session_state.menu_choice = "修改密码"
