@@ -9,7 +9,7 @@ import zipfile
 import tempfile
 import os
 import re
-from pypdf import PdfReader, PdfWriter
+import fitz  # PyMuPDF
 
 
 class PDFMergeAnalyzer:
@@ -326,19 +326,17 @@ def merge_pdfs(pdf_contents: List[bytes]) -> bytes:
     Returns:
         合并后的 PDF 内容
     """
-    writer = PdfWriter()
+    merged_doc = fitz.open()
 
     for pdf_content in pdf_contents:
-        # 将 bytes 转换为文件对象
-        pdf_io = io.BytesIO(pdf_content)
-        reader = PdfReader(pdf_io)
-        # 获取 PDF 的所有页数
-        for page in reader.pages:
-            writer.add_page(page)
+        src_doc = fitz.open(stream=pdf_content, filetype="pdf")
+        merged_doc.insert_pdf(src_doc)
+        src_doc.close()
 
     # 创建输出缓冲区
     output_buffer = io.BytesIO()
-    writer.write(output_buffer)
+    merged_doc.save(output_buffer)
+    merged_doc.close()
 
     return output_buffer.getvalue()
 
