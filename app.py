@@ -226,6 +226,8 @@ else:
         st.session_state.menu_choice = "分板工具"    
     if st.sidebar.button("🐔 鱼虫PDF工具", width='stretch'):
         st.session_state.menu_choice = "鱼虫PDF工具"
+    if st.sidebar.button("😻 喂食器一件代发", width='stretch'):
+        st.session_state.menu_choice = "喂食器一件代发"
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛠 系统管理")
     if st.sidebar.button("🔑 修改密码", width='stretch'):
@@ -262,6 +264,9 @@ else:
     elif cur == "鱼虫PDF工具":
         from tools import pdf_merge_analyzer_st
         pdf_merge_analyzer_st.show_ui(u_info, lambda username: update_usage(username, "鱼虫PDF工具", "处理鱼虫PDF文件"))
+    elif cur == "喂食器一件代发":
+        from tools import feeder_dropship
+        feeder_dropship.show_ui(u_info, lambda username: update_usage(username, "喂食器一件代发", "处理喂食器一件代发"))
     # ====================== 修改密码 ======================
     elif cur == "修改密码":
         st.subheader("修改密码")
