@@ -109,7 +109,7 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
             w, h = page.rect.width, page.rect.height
             sku_val = upc_to_sku_map.get(sku, "Unknown")
             
-            fontsize = 50
+            fontsize = 35
 
             start_y = h * 0.1
             line_height = fontsize * 1.3
@@ -117,7 +117,7 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
 
             # 上部
             page.insert_textbox(
-                fitz.Rect(w*0.1, start_y, w, start_y + box_height),
+                fitz.Rect(w*0.05, start_y, w, start_y + box_height),
                 f"UPC: {sku}",
                 fontsize=fontsize,
                 align=0
@@ -125,7 +125,7 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
 
             # 中部
             page.insert_textbox(
-                fitz.Rect(w*0.1, start_y + box_height, w, start_y + box_height * 2),
+                fitz.Rect(w*0.05, start_y + box_height, w, start_y + box_height * 2),
                 f"SKU: {sku_val}",
                 fontsize=fontsize,
                 align=0
@@ -133,7 +133,7 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
 
             # 下部
             page.insert_textbox(
-                fitz.Rect(w*0.1, start_y + box_height * 2, w, start_y + box_height * 3),
+                fitz.Rect(w*0.05, start_y + box_height * 2, w, start_y + box_height * 3),
                 f"QTY: {sku_count}",
                 fontsize=fontsize,
                 align=0
