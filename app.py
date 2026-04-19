@@ -30,6 +30,8 @@ def ensure_auth_column():
     cols = [row[1] for row in c.fetchall()]
     if "auth_token" not in cols:
         c.execute("ALTER TABLE users ADD COLUMN auth_token TEXT")
+    if "token_created_at" not in cols:
+        c.execute("ALTER TABLE users ADD COLUMN token_created_at TEXT")
     conn.commit()
     conn.close()
 
@@ -45,7 +47,8 @@ def init_db():
                   expiry_date TEXT,
                   total_limit INTEGER,
                   used_count INTEGER,
-                  auth_token TEXT)''')
+                  auth_token TEXT,
+                  token_created_at TEXT)''')
     
     # 创建操作日志表
     c.execute('''CREATE TABLE IF NOT EXISTS operation_logs
@@ -147,8 +150,11 @@ def update_usage(username, operation_type="未知操作", operation_detail=""):
 
 def set_user_auth_token(username):
     token = str(uuid.uuid4())
+    from datetime import timezone
+    tz_sh = timezone(timedelta(hours=8))
+    created_at = datetime.now(tz_sh).strftime("%Y-%m-%d %H:%M:%S")
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE users SET auth_token=? WHERE username=?", (token, username))
+    conn.execute("UPDATE users SET auth_token=?, token_created_at=? WHERE username=?", (token, created_at, username))
     conn.commit()
     conn.close()
     return token
@@ -156,18 +162,37 @@ def set_user_auth_token(username):
 
 def clear_user_auth_token(username):
     conn = sqlite3.connect(DB_PATH)
-    conn.execute("UPDATE users SET auth_token=NULL WHERE username=?", (username,))
+    conn.execute("UPDATE users SET auth_token=NULL, token_created_at=NULL WHERE username=?", (username,))
     conn.commit()
     conn.close()
 
 
-def get_user_by_token(token):
+def get_user_by_token(token, token_expiry_days=1):
+    """验证 token 并检查是否过期"""
     conn = sqlite3.connect(DB_PATH)
-    df = pd.read_sql("SELECT username FROM users WHERE auth_token=?", conn, params=(token,))
+    df = pd.read_sql("SELECT username, token_created_at FROM users WHERE auth_token=?", conn, params=(token,))
     conn.close()
+
     if df.empty:
         return None
-    return df.loc[0, 'username']
+
+    username = df.loc[0, 'username']
+    token_created_at = df.loc[0, 'token_created_at']
+
+    # 检查 token 是否过期
+    if token_created_at:
+        from datetime import timezone
+        tz_sh = timezone(timedelta(hours=8))
+        created_time = datetime.strptime(token_created_at, "%Y-%m-%d %H:%M:%S")
+        created_time = created_time.replace(tzinfo=tz_sh)
+        current_time = datetime.now(tz_sh)
+
+        if (current_time - created_time).days >= token_expiry_days:
+            # token 已过期，清除它
+            clear_user_auth_token(username)
+            return None
+
+    return username
 
 
 # --- 页面配置 ---

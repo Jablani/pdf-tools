@@ -162,7 +162,7 @@ def process_logic(main_zip_file, freight_file, upc_sku_file):
     return zip_data, total_logs, obc_count, processed_count, unprocessed_count, unprocessed_folders
 
 def show_ui(u_info, callback):
-    st.title("📂 分板处理工具 v1.0(测试中...)")
+    st.title("📂 分板处理工具 v1.0")
     st.info("作用：处理 OBC 压缩包、Freight 表和 UPC 映射表，生成分板 Excel。")
 
     col1, col2, col3 = st.columns(3)
