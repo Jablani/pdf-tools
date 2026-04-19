@@ -32,6 +32,13 @@ def ensure_auth_column():
         c.execute("ALTER TABLE users ADD COLUMN auth_token TEXT")
     if "token_created_at" not in cols:
         c.execute("ALTER TABLE users ADD COLUMN token_created_at TEXT")
+
+    # 确保操作日志表有token_expiry列
+    c.execute("PRAGMA table_info(operation_logs)")
+    log_cols = [row[1] for row in c.fetchall()]
+    if "token_expiry" not in log_cols:
+        c.execute("ALTER TABLE operation_logs ADD COLUMN token_expiry TEXT")
+
     conn.commit()
     conn.close()
 
@@ -57,7 +64,8 @@ def init_db():
                   operation_type TEXT,
                   operation_detail TEXT,
                   timestamp TEXT,
-                  ip_address TEXT)''')
+                  ip_address TEXT,
+                  token_expiry TEXT)''')
     
     conn.commit()
     conn.close()
@@ -130,20 +138,32 @@ def update_usage(username, operation_type="未知操作", operation_detail=""):
     """扣除用户使用额度并记录操作日志"""
     conn = sqlite3.connect(DB_PATH)
     conn.execute("UPDATE users SET used_count = used_count + 1 WHERE username=?", (username,))
-    
+
     # 获取 IP 及其归属地
     raw_ip = get_client_ip()
     geo_info = get_ip_info(raw_ip)
     full_ip_info = f"{raw_ip} ({geo_info})"
-    
+
     # 记录操作日志
     from datetime import timezone
     tz_sh = timezone(timedelta(hours=8))
     timestamp = datetime.now(tz_sh).strftime("%Y-%m-%d %H:%M:%S")
-    
-    conn.execute("INSERT INTO operation_logs (username, operation_type, operation_detail, timestamp, ip_address) VALUES (?, ?, ?, ?, ?)",
-                 (username, operation_type, operation_detail, timestamp, full_ip_info))
-    
+
+    # 获取用户的token过期时间
+    token_expiry = ""
+    c = conn.cursor()
+    c.execute("SELECT token_created_at FROM users WHERE username=?", (username,))
+    result = c.fetchone()
+    if result and result[0]:
+        token_created_at = result[0]
+        created_time = datetime.strptime(token_created_at, "%Y-%m-%d %H:%M:%S")
+        created_time = created_time.replace(tzinfo=tz_sh)
+        expiry_time = created_time + timedelta(days=1)
+        token_expiry = expiry_time.strftime("%Y-%m-%d %H:%M:%S")
+
+    conn.execute("INSERT INTO operation_logs (username, operation_type, operation_detail, timestamp, ip_address, token_expiry) VALUES (?, ?, ?, ?, ?, ?)",
+                 (username, operation_type, operation_detail, timestamp, full_ip_info, token_expiry))
+
     conn.commit()
     conn.close()
 
@@ -224,6 +244,22 @@ if not st.session_state.auth:
             st.session_state.auth = True
             st.session_state.user = user
             token = set_user_auth_token(user)
+
+            # 记录登录日志
+            from datetime import timezone
+            tz_sh = timezone(timedelta(hours=8))
+            token_expiry_time = (datetime.now(tz_sh) + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+            conn = sqlite3.connect(DB_PATH)
+            raw_ip = get_client_ip()
+            geo_info = get_ip_info(raw_ip)
+            full_ip_info = f"{raw_ip} ({geo_info})"
+            timestamp = datetime.now(tz_sh).strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute("INSERT INTO operation_logs (username, operation_type, operation_detail, timestamp, ip_address, token_expiry) VALUES (?, ?, ?, ?, ?, ?)",
+                        (user, "登录", "登录", timestamp, full_ip_info, token_expiry_time))
+            conn.commit()
+            conn.close()
+
             st.query_params["token"] = token
             st.rerun()
         else:
@@ -380,7 +416,7 @@ else:
         with tab2:
             st.subheader("📊 操作记录查看")
             filter_user = st.selectbox("筛选用户", ["全部"] + list(pd.read_sql("SELECT DISTINCT username FROM operation_logs", sqlite3.connect(DB_PATH))['username']))
-            query = "SELECT username, operation_type, operation_detail, timestamp, ip_address FROM operation_logs WHERE 1=1"
+            query = "SELECT username, operation_type, operation_detail, timestamp, ip_address, token_expiry FROM operation_logs WHERE 1=1"
             params = []
             if filter_user != "全部":
                 query += " AND username = ?"
@@ -391,7 +427,7 @@ else:
             conn.close()
             if not df_logs.empty:
                 df_logs['timestamp'] = pd.to_datetime(df_logs['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
-                df_logs = df_logs.rename(columns={'username': '用户名', 'operation_type': '操作类型', 'operation_detail': '操作详情', 'timestamp': '操作时间', 'ip_address': 'IP及归属地'})
+                df_logs = df_logs.rename(columns={'username': '用户名', 'operation_type': '操作类型', 'operation_detail': '操作详情', 'timestamp': '操作时间', 'ip_address': 'IP及归属地', 'token_expiry': 'Token过期时间'})
                 st.dataframe(df_logs, width='stretch')
             else:
                 st.info("暂无操作记录")
