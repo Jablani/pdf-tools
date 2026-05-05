@@ -37,9 +37,24 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
         
         input_folder = ex_p / "input"
         input_folder.mkdir(exist_ok=True)
-        
+
         # 1. 模拟 pdf_organizer.py 的归集重命名
-        all_folders = [f for f in ex_p.iterdir() if f.is_dir() and f.name != "input"]
+        # 递归查找所有包含PDF的子文件夹(支持嵌套结构)
+        def find_pdf_folders(path):
+            """递归查找所有包含PDF文件的文件夹"""
+            folders = []
+            for item in path.iterdir():
+                if item.is_dir() and item.name not in ["input", "__MACOSX"]:
+                    pdf_files = list(item.glob("*.pdf"))
+                    if pdf_files:
+                        folders.append(item)
+                    # 递归检查子文件夹
+                    folders.extend(find_pdf_folders(item))
+            return folders
+
+        all_folders = find_pdf_folders(ex_p)
+        log.append(f"找到 {len(all_folders)} 个包含PDF的文件夹")
+
         for folder in all_folders:
             folder_name = folder.name
             pdfs = list(folder.glob("*.pdf"))
@@ -51,9 +66,13 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
             if s_pdf:
                 new_n = f"{folder_name}-2.pdf"
                 shutil.copy2(s_pdf, input_folder / new_n)
+                log.append(f"  面单: {folder_name}/{s_pdf.name} -> {new_n}")
             if c_pdf:
                 new_n = f"{folder_name}-1.pdf"
                 shutil.copy2(c_pdf, input_folder / new_n)
+                log.append(f"  箱标: {folder_name}/{c_pdf.name} -> {new_n}")
+            if not s_pdf and not c_pdf:
+                log.append(f"  ⚠️ 文件夹 {folder_name} 未匹配到PDF (关键词: {ship_key}/{cart_key})")
 
         # 2. 加载 UPC/ASIN->SKU 映射
         upc_to_sku_map = {}
@@ -87,6 +106,16 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
                 sku = get_sku_from_page(docA[i])
                 if sku: sku_map[sku].append((paths["A"], paths["B"], i))
             docA.close()
+
+        # 检查是否有有效数据
+        if not groups:
+            raise ValueError("未找到有效的PDF配对。请检查：\n1. ZIP文件结构是否正确\n2. 面单/箱标关键词是否与文件名匹配\n3. 每个订单文件夹是否包含两个PDF文件")
+
+        if not sku_map:
+            raise ValueError("未能从PDF中提取到UPC/EAN/ASIN。请检查PDF内容是否包含有效的条码信息。")
+
+        log.append(f"成功配对 {len(groups)} 组PDF")
+        log.append(f"提取到 {len(sku_map)} 个唯一SKU")
 
         # 4. 生成最终 PDF
         out = fitz.open()
