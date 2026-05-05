@@ -9,7 +9,7 @@ from pathlib import Path
 from collections import defaultdict
 
 def get_sku_from_page(page):
-    """从 PDF 页面提取 UPC/EAN 编号"""
+    """从 PDF 页面提取 UPC/EAN/ASIN 编号"""
     text = page.get_text()
     lines = text.split("\n")
     found_upc = None
@@ -21,6 +21,9 @@ def get_sku_from_page(page):
         if "UPC" in clean and i+1 < len(lines):
             val = lines[i+1].strip()
             if val.isdigit(): found_upc = val
+        if "ASIN" in clean and i+1 < len(lines):
+            val = lines[i+1].strip()
+            if val.isalnum(): return val
     return found_upc
 
 def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
@@ -52,10 +55,19 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
                 new_n = f"{folder_name}-1.pdf"
                 shutil.copy2(c_pdf, input_folder / new_n)
 
-        # 2. 加载 UPC->SKU 映射
+        # 2. 加载 UPC/ASIN->SKU 映射
         upc_to_sku_map = {}
         for _, row in excel_df.iterrows():
-            u = str(int(row['productName'])) if pd.notna(row['productName']) else None
+            # 支持纯数字(UPC/EAN)和字母数字组合(ASIN)
+            if pd.notna(row['productName']):
+                raw_val = str(row['productName']).strip()
+                # 如果是纯数字，去掉小数部分(如 782943477070.0 -> 782943477070)
+                if raw_val.replace('.0', '').isdigit():
+                    u = raw_val.replace('.0', '')
+                else:
+                    u = raw_val
+            else:
+                u = None
             s = str(row['productSku']) if pd.notna(row['productSku']) else "Unknown"
             if u: upc_to_sku_map[u] = s
 
@@ -79,7 +91,13 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
         # 4. 生成最终 PDF
         out = fitz.open()
         b_page_indices = []
-        sorted_skus = sorted(sku_map.keys(), key=lambda x: int(x) if x.isdigit() else 0)
+        # 排序: 纯数字按数值排序，ASIN按字符串排序
+        def sort_key(x):
+            if x.isdigit():
+                return (0, int(x))
+            else:
+                return (1, x)
+        sorted_skus = sorted(sku_map.keys(), key=sort_key)
         
         total_skus = len(sorted_skus)  # 获取本次任务的总 SKU 数量
 
@@ -116,9 +134,10 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
             box_height = line_height + 20  # 关键！
 
             # 上部
+            sku_label = "ASIN" if sku and sku.isalnum() and not sku.isdigit() else "UPC"
             page.insert_textbox(
                 fitz.Rect(w*0.05, start_y, w, start_y + box_height),
-                f"UPC: {sku}",
+                f"{sku_label}: {sku}",
                 fontsize=fontsize,
                 align=0
             )
@@ -166,7 +185,7 @@ def show_ui(user_info, update_usage_callback):
     st.markdown("""
     **功能说明：**
     1. 上传子文件夹 ZIP 包，自动识别 carton（箱标）和 shipping（面单）PDF。
-    2. 按 UPC 排序，逐组合并 carton+shipping 页面，中间插入间隔页显示 SKU 和数量。
+    2. 按 UPC/EAN/ASIN 排序，逐组合并 carton+shipping 页面，中间插入间隔页显示 SKU 和数量。
     3. 生成统一的 UPS 处理 PDF。
     """)
     
