@@ -289,6 +289,8 @@ else:
         st.session_state.menu_choice = "鱼虫PDF工具"
     if st.sidebar.button("😻 喂食器一件代发", width='stretch'):
         st.session_state.menu_choice = "喂食器一件代发"
+    if st.sidebar.button("🏥 医美 Packing List", width='stretch'):
+        st.session_state.menu_choice = "医美PackingList"
     st.sidebar.markdown("---")
     st.sidebar.subheader("🛠 系统管理")
     if st.sidebar.button("🔑 修改密码", width='stretch'):
@@ -328,6 +330,9 @@ else:
     elif cur == "喂食器一件代发":
         from tools import feeder_dropship
         feeder_dropship.show_ui(u_info, lambda username: update_usage(username, "喂食器一件代发", "处理喂食器一件代发"))
+    elif cur == "医美PackingList":
+        from tools import yimei_packing
+        yimei_packing.show_ui(u_info, lambda username: update_usage(username, "医美PackingList", "处理医美Packing List"))
     # ====================== 修改密码 ======================
     elif cur == "修改密码":
         st.subheader("修改密码")
