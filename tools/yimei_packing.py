@@ -149,7 +149,7 @@ def get_pkg_from_filename(filename):
 
 
 def process_single_pkg(detail_path, label_path, excel_df, output_dir):
-    """处理单个 PKG 的所有文件"""
+    """处理单个 PKG 的所有文件，返回 (logs, excel_rows)"""
     logs = []
     pkg_number = get_pkg_from_filename(detail_path)
     if not pkg_number:
@@ -188,17 +188,14 @@ def process_single_pkg(detail_path, label_path, excel_df, output_dir):
     agent = str(first_row.get("Agent", ""))
     carrier = str(first_row.get("Carrier", ""))
 
-    # 统一使用 PKG# 格式作为输出文件夹名
+    # 统一使用 PKG# 格式
     pkg_display = pkg_normalized
-    # 4. 创建输出文件夹
-    out_folder = Path(output_dir) / pkg_display
-    out_folder.mkdir(parents=True, exist_ok=True)
 
-    # 5. 拆分 label PDF，按 Item 顺序分配页面（全局序号）
+    # 4. 拆分 label PDF，按 Item 顺序分配页面（全局序号）
     label_doc = fitz.open(label_path)
     current_page = 0
     global_seq = 0
-    label_files = []  # [(filename, page_index_in_original), ...]
+    label_files = []  # [(filename, item_code), ...]
 
     for item_code, item_qty in items:
         for _ in range(item_qty):
@@ -207,7 +204,7 @@ def process_single_pkg(detail_path, label_path, excel_df, output_dir):
 
             global_seq += 1
             label_filename = f"label_{pkg_display}_{item_code}_{global_seq:02d}.pdf"
-            label_path_out = out_folder / label_filename
+            label_path_out = Path(output_dir) / label_filename
             new_doc.save(str(label_path_out))
             new_doc.close()
 
@@ -216,7 +213,7 @@ def process_single_pkg(detail_path, label_path, excel_df, output_dir):
 
     label_doc.close()
 
-    # 6. 验证拆分后的 label 文件数
+    # 5. 验证拆分后的 label 文件数
     if current_page != label_page_count:
         raise ValueError(
             f"PKG {pkg_number}: 拆分出的 label 数 ({current_page}) 与原 label 页数 ({label_page_count}) 不一致"
@@ -224,18 +221,17 @@ def process_single_pkg(detail_path, label_path, excel_df, output_dir):
     logs.append(f"验证通过: 拆分 label 数 ({current_page}) = 原 label 页数 ({label_page_count})")
     logs.append(f"生成 {len(label_files)} 个 label PDF")
 
-    # 7. 复制并重命名 detail PDF（使用第一个 Item 作为后缀）
+    # 6. 复制并重命名 detail PDF（使用第一个 Item 作为后缀）
     first_item_code = items[0][0]
     detail_out_name = f"detail_{pkg_display}_{first_item_code}_01.pdf"
-    detail_out_path = out_folder / detail_out_name
+    detail_out_path = Path(output_dir) / detail_out_name
     shutil.copy2(detail_path, detail_out_path)
     logs.append(f"detail PDF -> {detail_out_name}")
 
-    # 8. 生成输出 Excel
+    # 7. 构建 Excel 行数据（不写序号，由调用方统一编号）
     excel_rows = []
     for idx, (label_filename, item_code) in enumerate(label_files, 1):
         excel_rows.append({
-            "No.": idx,
             "Provider": provider,
             "Order Number": f"{pkg_display}_{item_code}_{idx:02d}",
             "Agent": agent,
@@ -245,20 +241,7 @@ def process_single_pkg(detail_path, label_path, excel_df, output_dir):
             "QTY": 1,
         })
 
-    # 获取上传 Excel 的文件名（去掉扩展名）
-    excel_name = "output"
-    for col in excel_df.columns:
-        if "No." in str(col):
-            break
-    # 使用原始 Excel 文件名作为前缀
-    excel_out_name = f"{excel_name}_{pkg_display}.xlsx"
-    excel_out_path = out_folder / excel_out_name
-
-    out_df = pd.DataFrame(excel_rows)
-    out_df.to_excel(excel_out_path, index=False)
-    logs.append(f"Excel -> {excel_out_name}")
-
-    return logs
+    return logs, excel_rows
 
 
 def show_ui(user_info, update_usage_callback):
@@ -266,7 +249,7 @@ def show_ui(user_info, update_usage_callback):
     st.title("🏥 医美 Packing List 工具 v1.0")
 
     st.markdown("""
-    **功能说明：** 自动解析 detail PDF 中的 Item 和 Qty 信息，按 Item 拆分 label PDF，生成重命名后的 detail PDF、拆分的 label PDF 和对应的 Excel 文件。
+    **功能说明：** 自动解析 detail PDF 中的 Item 和 Qty 信息，按 Item 拆分 label PDF，生成重命名后的 detail PDF、拆分的 label PDF 和合并的 Excel 文件。
 
     **支持的上传格式：** `.zip` 压缩包
 
@@ -280,6 +263,8 @@ def show_ui(user_info, update_usage_callback):
     ├── label_PKG#yyyyyyy.pdf
     └── ...
     ```
+    **输出结构：** 所有文件（1个合并Excel + 所有detail PDF + 所有label PDF）放在一个文件夹中。
+
     **注意事项：**
     - Excel 必须包含列：No.、Provider、Order Number、Agent、Carrier、Tracking Number、FBA、QTY
     - detail 和 label 文件名中的 PKG 号必须一致（如 `detail_PKG#20264144.pdf` 与 `label_PKG#20264144.pdf`）
@@ -335,6 +320,9 @@ def show_ui(user_info, update_usage_callback):
                                 st.error(f"❌ Excel 缺少列: {missing}")
                                 return
 
+                            # 使用上传的 Excel 文件名作为输出 Excel 的前缀
+                            excel_name = excel_files[0].stem
+
                             # 查找 detail PDF 并配对
                             detail_files = [f for f in pdf_files if f.name.lower().startswith("detail_")]
                             label_files = [f for f in pdf_files if f.name.lower().startswith("label_")]
@@ -344,6 +332,7 @@ def show_ui(user_info, update_usage_callback):
                                 return
 
                             all_logs = []
+                            all_excel_rows = []
                             output_dir = td_path / "output"
                             output_dir.mkdir()
 
@@ -365,18 +354,46 @@ def show_ui(user_info, update_usage_callback):
                                     continue
 
                                 try:
-                                    pkg_logs = process_single_pkg(
+                                    pkg_logs, pkg_excel_rows = process_single_pkg(
                                         str(detail_path), str(matching_label), excel_df, str(output_dir)
                                     )
                                     all_logs.append(f"=== {pkg_number} ===")
                                     all_logs.extend(pkg_logs)
+                                    all_excel_rows.extend(pkg_excel_rows)
                                     processed_pkgs += 1
                                 except Exception as e:
                                     all_logs.append(f"❌ {pkg_number}: {str(e)}")
 
                             if processed_pkgs > 0:
+                                # 添加全局序号并写入合并的 Excel
+                                required_cols = ["No.", "Provider", "Order Number", "Agent", "Carrier", "Tracking Number", "FBA", "QTY"]
+                                for idx, row in enumerate(all_excel_rows, 1):
+                                    row["No."] = idx
+                                out_df = pd.DataFrame(all_excel_rows, columns=required_cols)
+                                excel_out_name = f"{excel_name}.xlsx"
+                                excel_out_path = output_dir / excel_out_name
+                                out_df.to_excel(excel_out_path, index=False)
+
+                                # 调整各列列宽：按每列最长单元格宽度适配
+                                import openpyxl
+                                wb = openpyxl.load_workbook(excel_out_path)
+                                ws = wb.active
+                                for col in ws.columns:
+                                    max_len = 0
+                                    col_letter = col[0].column_letter
+                                    for cell in col:
+                                        if cell.value:
+                                            # 中文字符算2个宽度
+                                            w = sum(2 if ord(c) > 127 else 1 for c in str(cell.value))
+                                            if w > max_len:
+                                                max_len = w
+                                    ws.column_dimensions[col_letter].width = max_len + 2
+                                wb.save(excel_out_path)
+
+                                all_logs.append(f"合并 Excel -> {excel_out_name} ({len(all_excel_rows)} 行)")
+
                                 update_usage_callback(user_info["username"])
-                                st.success(f"✅ 成功处理 {processed_pkgs} 个 PKG")
+                                st.success(f"✅ 成功处理 {processed_pkgs} 个 PKG，共 {len(all_excel_rows)} 条记录")
 
                                 # 打包输出文件为 ZIP 供下载
                                 zip_out = td_path / "output.zip"
@@ -390,7 +407,7 @@ def show_ui(user_info, update_usage_callback):
                                     st.download_button(
                                         "📥 下载结果 ZIP",
                                         data=f.read(),
-                                        file_name="yimei_output.zip",
+                                        file_name=f"{excel_name}_output.zip",
                                         mime="application/zip",
                                     )
 
