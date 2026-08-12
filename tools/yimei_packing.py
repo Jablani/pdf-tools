@@ -9,6 +9,45 @@ import re
 from pathlib import Path
 
 
+def parse_item_qty_lines(lines):
+    """解析 Item/Qty 表格，Item 支持字母和数字组合，Qty 必须为正整数。"""
+    item_start_idx = None
+    for i, line in enumerate(lines):
+        if line.strip().upper() == "ITEM":
+            item_start_idx = i
+            break
+
+    if item_start_idx is None:
+        return []
+
+    data_lines = [
+        line.strip().rstrip(" .")
+        for line in lines[item_start_idx + 1:]
+        if line.strip()
+    ]
+
+    # PDF 文本通常按 Item、Qty 两列表头依次提取。
+    if data_lines and data_lines[0].upper() == "QTY":
+        data_lines = data_lines[1:]
+
+    if len(data_lines) % 2 != 0:
+        raise ValueError(f"Item/Qty 数据未成对: {data_lines}")
+
+    items = []
+    for i in range(0, len(data_lines), 2):
+        item_code = data_lines[i]
+        qty_text = data_lines[i + 1]
+
+        if not re.fullmatch(r"[A-Za-z0-9]+", item_code):
+            raise ValueError(f"无效的 Item 编号: {item_code}")
+        if not qty_text.isdigit() or int(qty_text) <= 0:
+            raise ValueError(f"Item {item_code} 的 Qty 无效: {qty_text}")
+
+        items.append((item_code, int(qty_text)))
+
+    return items
+
+
 def parse_detail_pdf(pdf_path):
     """从 detail PDF 中提取 PKG 号、PO 号、Item 列表及其数量"""
     doc = fitz.open(pdf_path)
@@ -109,34 +148,7 @@ def parse_detail_pdf_v2(pdf_path):
             po_number = po_clean
             break
 
-    # 提取 Item-Qty 对
-    # 找到 Item 和 Qty 表头之后的数据
-    item_start_idx = None
-    for i, line in enumerate(lines):
-        if line.strip().upper() == "ITEM":
-            item_start_idx = i
-            break
-
-    items = []
-    if item_start_idx is not None:
-        # 从 Item 后面开始找数据
-        # 格式通常是交替的: Item1, Qty1, Item2, Qty2, ...
-        data_lines = []
-        for line in lines[item_start_idx + 1:]:
-            clean = line.strip().rstrip(" .")
-            if clean.isdigit() and int(clean) > 0:
-                data_lines.append(clean)
-            # 也匹配 "Qty11" 这种总数量行（跳过）
-            if re.match(r"^Qty\s*\d+", clean, re.IGNORECASE):
-                continue
-            if re.match(r"^Total\s*Qty", clean, re.IGNORECASE):
-                continue
-
-        # 成对读取: Item, Qty
-        i = 0
-        while i + 1 < len(data_lines):
-            items.append((data_lines[i], int(data_lines[i + 1])))
-            i += 2
+    items = parse_item_qty_lines(lines)
 
     return pkg_number, po_number, items
 
