@@ -26,7 +26,7 @@ def get_sku_from_page(page):
             if val.isalnum(): return val
     return found_upc
 
-def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
+def run_workflow_logic(zip_file, excel_df, ship_key, cart_key, duplicate_shipping=False):
     """核心处理逻辑：重命名 -> 排序 -> 合并"""
     log = []
     with tempfile.TemporaryDirectory() as td:
@@ -144,8 +144,12 @@ def run_workflow_logic(zip_file, excel_df, ship_key, cart_key):
                 out.insert_pdf(docA, from_page=page_i, to_page=page_i)
                 # 插入 B 页 (面单)
                 out.insert_pdf(docB, from_page=page_i, to_page=page_i)
-                
                 b_page_indices.append(len(out) - 1)
+
+                # 如果勾选生成双份面单
+                if duplicate_shipping:
+                    out.insert_pdf(docB, from_page=page_i, to_page=page_i)
+                    b_page_indices.append(len(out) - 1)
                 
                 docA.close()
                 docB.close()
@@ -240,6 +244,7 @@ def show_ui(user_info, update_usage_callback):
         c_key = st.selectbox('箱标关键词:',['carton','自定义'])
         if c_key == "自定义":
             c_key = st.text_input('请输入箱标关键词')
+        duplicate_shipping = st.checkbox("Shipping 面单重复双份输出", value=False)
         zip_f = st.file_uploader("上传子文件夹 ZIP 包", type=['zip'])
         excel_f = st.file_uploader("上传 UPC_SKU 映射表 (Excel)", type=['xlsx'])
     
@@ -250,7 +255,7 @@ def show_ui(user_info, update_usage_callback):
                 with st.spinner("处理中..."):
                     try:
                         excel_df = pd.read_excel(excel_f)
-                        pdf_bytes, logs = run_workflow_logic(zip_f, excel_df, s_key.lower(), c_key.lower())
+                        pdf_bytes, logs = run_workflow_logic(zip_f, excel_df, s_key.lower(), c_key.lower(), duplicate_shipping)
                         update_usage_callback(user_info['username'])
                         st.success("✅ 处理成功！")
                         st.download_button("📥 下载结果 PDF", data=pdf_bytes, file_name="UPS_Final_Output.pdf")
