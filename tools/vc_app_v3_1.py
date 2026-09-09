@@ -79,6 +79,7 @@ def show_ui(user_info, update_usage_callback):
         st.error("❌ 使用次数已耗尽")
         return
     
+    duplicate_carton = st.checkbox("Carton 箱标重复双份输出", value=False)
     uploaded_file = st.file_uploader("上传 ZIP", type="zip")
     if uploaded_file and st.button("处理 ZIP"):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -127,7 +128,12 @@ def show_ui(user_info, update_usage_callback):
                     create_separator_page(output_doc, ob_name, "PLT", index_str, w, h)
                     # 4. Carton
                     with fitz.open(os.path.join(folder_path, carton_file)) as c_doc:
-                        output_doc.insert_pdf(c_doc)
+                        if duplicate_carton:
+                            for c_page_i in range(len(c_doc)):
+                                output_doc.insert_pdf(c_doc, from_page=c_page_i, to_page=c_page_i)
+                                output_doc.insert_pdf(c_doc, from_page=c_page_i, to_page=c_page_i)
+                        else:
+                            output_doc.insert_pdf(c_doc)
                     # 5. 第二个间隔页
                     create_separator_page(output_doc, ob_name, "CTNS", index_str, w, h)
                     
